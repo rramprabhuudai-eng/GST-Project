@@ -1,4 +1,4 @@
-import { prisma } from '@/lib/db/prisma'
+import { supabase } from '@/lib/supabase'
 import {
   MessageStatus,
   WhatsAppTemplateParameters,
@@ -24,24 +24,28 @@ export async function enqueueWhatsAppMessage(
   scheduledFor: Date,
   phoneNumber: string
 ): Promise<EnqueueMessageResult> {
-  const message = await prisma.messageOutbox.create({
-    data: {
+  const { data: message, error } = await supabase
+    .from('message_outbox')
+    .insert({
       contact_id: contactId,
       template_id: templateId,
-      parameters: parameters as any, // Prisma Json type
-      phone_number: phoneNumber,
-      scheduled_for: scheduledFor,
-      status: MessageStatus.PENDING
-    },
-    select: {
-      id: true,
-      contact_id: true,
-      template_id: true,
-      scheduled_for: true
-    }
-  })
+      parameters: parameters,
+      scheduled_for: scheduledFor.toISOString(),
+      delivery_status: 'queued'
+    })
+    .select('id, contact_id, template_id, scheduled_for')
+    .single()
 
-  return message
+  if (error) {
+    throw new Error(`Failed to enqueue message: ${error.message}`)
+  }
+
+  return {
+    id: message.id,
+    contact_id: message.contact_id,
+    template_id: message.template_id,
+    scheduled_for: new Date(message.scheduled_for)
+  }
 }
 
 /**
@@ -59,26 +63,29 @@ export async function enqueueWhatsAppMessages(
     phoneNumber: string
   }>
 ): Promise<EnqueueMessageResult[]> {
-  return await prisma.$transaction(
-    messages.map(msg =>
-      prisma.messageOutbox.create({
-        data: {
-          contact_id: msg.contactId,
-          template_id: msg.templateId,
-          parameters: msg.parameters as any,
-          phone_number: msg.phoneNumber,
-          scheduled_for: msg.scheduledFor,
-          status: MessageStatus.PENDING
-        },
-        select: {
-          id: true,
-          contact_id: true,
-          template_id: true,
-          scheduled_for: true
-        }
-      })
-    )
-  )
+  const messagesToInsert = messages.map(msg => ({
+    contact_id: msg.contactId,
+    template_id: msg.templateId,
+    parameters: msg.parameters,
+    scheduled_for: msg.scheduledFor.toISOString(),
+    delivery_status: 'queued' as const
+  }))
+
+  const { data: insertedMessages, error } = await supabase
+    .from('message_outbox')
+    .insert(messagesToInsert)
+    .select('id, contact_id, template_id, scheduled_for')
+
+  if (error) {
+    throw new Error(`Failed to enqueue messages: ${error.message}`)
+  }
+
+  return insertedMessages.map(msg => ({
+    id: msg.id,
+    contact_id: msg.contact_id,
+    template_id: msg.template_id,
+    scheduled_for: new Date(msg.scheduled_for)
+  }))
 }
 
 /**
@@ -91,14 +98,18 @@ export async function markMessageAsSent(
   messageId: string,
   bspMessageId: string
 ): Promise<void> {
-  await prisma.messageOutbox.update({
-    where: { id: messageId },
-    data: {
-      status: MessageStatus.SENT,
-      sent_at: new Date(),
-      message_id: bspMessageId
-    }
-  })
+  const { error } = await supabase
+    .from('message_outbox')
+    .update({
+      delivery_status: 'sent',
+      sent_at: new Date().toISOString(),
+      external_message_id: bspMessageId
+    })
+    .eq('id', messageId)
+
+  if (error) {
+    throw new Error(`Failed to mark message as sent: ${error.message}`)
+  }
 }
 
 /**
@@ -110,17 +121,19 @@ export async function markMessageAsSent(
  */
 export async function markMessageAsFailed(
   messageId: string,
-  errorMessage: string,
-  retryCount: number
+  errorMessage: string
 ): Promise<void> {
-  await prisma.messageOutbox.update({
-    where: { id: messageId },
-    data: {
-      status: MessageStatus.FAILED,
-      error_message: errorMessage,
-      retry_count: retryCount
-    }
-  })
+  const { error } = await supabase
+    .from('message_outbox')
+    .update({
+      delivery_status: 'failed',
+      error_message: errorMessage
+    })
+    .eq('id', messageId)
+
+  if (error) {
+    throw new Error(`Failed to mark message as failed: ${error.message}`)
+  }
 }
 
 /**
@@ -130,27 +143,25 @@ export async function markMessageAsFailed(
  * @returns Promise with array of pending messages
  */
 export async function getPendingMessages(limit: number = 100) {
-  return await prisma.messageOutbox.findMany({
-    where: {
-      status: MessageStatus.PENDING,
-      scheduled_for: {
-        lte: new Date()
-      }
-    },
-    include: {
-      contact: {
-        select: {
-          id: true,
-          name: true,
-          gstin: true,
-          whatsapp_number: true,
-          whatsapp_consent: true
-        }
-      }
-    },
-    orderBy: {
-      scheduled_for: 'asc'
-    },
-    take: limit
-  })
+  const { data: messages, error } = await supabase
+    .from('message_outbox')
+    .select(`
+      *,
+      contact:contacts(
+        id,
+        name,
+        phone,
+        whatsapp_consent
+      )
+    `)
+    .eq('delivery_status', 'queued')
+    .lte('scheduled_for', new Date().toISOString())
+    .order('scheduled_for', { ascending: true })
+    .limit(limit)
+
+  if (error) {
+    throw new Error(`Failed to get pending messages: ${error.message}`)
+  }
+
+  return messages
 }

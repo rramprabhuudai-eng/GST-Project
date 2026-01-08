@@ -1,4 +1,4 @@
-import { prisma } from '@/lib/db/prisma'
+import { supabase } from '@/lib/supabase'
 import {
   ReminderTemplateId,
   ReminderStatus,
@@ -21,22 +21,18 @@ export async function createReminderSchedule(
   deadlineId: string
 ): Promise<ReminderScheduleResult> {
   // Fetch the deadline to get the due date
-  const deadline = await prisma.deadline.findUnique({
-    where: { id: deadlineId },
-    select: {
-      id: true,
-      due_date: true,
-      filed_at: true,
-      status: true
-    }
-  })
+  const { data: deadline, error: deadlineError } = await supabase
+    .from('deadlines')
+    .select('id, due_date, filed_at')
+    .eq('id', deadlineId)
+    .single()
 
-  if (!deadline) {
+  if (deadlineError || !deadline) {
     throw new Error(`Deadline not found: ${deadlineId}`)
   }
 
   // Skip if deadline is already filed
-  if (deadline.filed_at || deadline.status === DeadlineStatus.FILED) {
+  if (deadline.filed_at) {
     return {
       deadline_id: deadlineId,
       reminders_created: 0,
@@ -89,19 +85,23 @@ export async function createReminderSchedule(
     })
   }
 
-  // Insert reminders in a transaction
-  const createdReminders = await prisma.$transaction(
-    remindersToCreate.map(reminder =>
-      prisma.reminderSchedule.create({
-        data: reminder,
-        select: {
-          id: true,
-          template_id: true,
-          send_at: true
-        }
-      })
-    )
-  )
+  // Insert reminders (Supabase handles this atomically)
+  if (remindersToCreate.length === 0) {
+    return {
+      deadline_id: deadlineId,
+      reminders_created: 0,
+      reminders: []
+    }
+  }
+
+  const { data: createdReminders, error: insertError } = await supabase
+    .from('reminder_schedule')
+    .insert(remindersToCreate)
+    .select('id, template_id, send_at')
+
+  if (insertError) {
+    throw new Error(`Failed to create reminders: ${insertError.message}`)
+  }
 
   return {
     deadline_id: deadlineId,

@@ -16,39 +16,106 @@ export type Json =
 export interface Database {
   public: {
     Tables: {
+      accounts: {
+        Row: {
+          id: string
+          created_at: string
+          business_name: string
+          primary_contact_id: string | null
+          timezone: string
+          status: 'active' | 'inactive' | 'suspended'
+        }
+        Insert: {
+          id?: string
+          created_at?: string
+          business_name: string
+          primary_contact_id?: string | null
+          timezone?: string
+          status?: 'active' | 'inactive' | 'suspended'
+        }
+        Update: {
+          id?: string
+          created_at?: string
+          business_name?: string
+          primary_contact_id?: string | null
+          timezone?: string
+          status?: 'active' | 'inactive' | 'suspended'
+        }
+      }
+      contacts: {
+        Row: {
+          id: string
+          account_id: string
+          phone: string | null
+          email: string | null
+          name: string
+          whatsapp_consent: boolean
+          opt_out_at: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          account_id: string
+          phone?: string | null
+          email?: string | null
+          name: string
+          whatsapp_consent?: boolean
+          opt_out_at?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          account_id?: string
+          phone?: string | null
+          email?: string | null
+          name?: string
+          whatsapp_consent?: boolean
+          opt_out_at?: string | null
+          created_at?: string
+        }
+      }
       gst_entities: {
         Row: {
           id: string
-          user_id: string
+          account_id: string
           gstin: string
           legal_name: string
           trade_name: string | null
-          filing_frequency: 'monthly' | 'quarterly'
+          state_code: string
+          registration_date: string | null
+          status: 'active' | 'inactive' | 'cancelled' | 'suspended'
+          verified_at: string | null
           created_at: string
           updated_at: string
         }
         Insert: {
           id?: string
-          user_id: string
+          account_id: string
           gstin: string
           legal_name: string
           trade_name?: string | null
-          filing_frequency?: 'monthly' | 'quarterly'
+          state_code: string
+          registration_date?: string | null
+          status?: 'active' | 'inactive' | 'cancelled' | 'suspended'
+          verified_at?: string | null
           created_at?: string
           updated_at?: string
         }
         Update: {
           id?: string
-          user_id?: string
+          account_id?: string
           gstin?: string
           legal_name?: string
           trade_name?: string | null
-          filing_frequency?: 'monthly' | 'quarterly'
+          state_code?: string
+          registration_date?: string | null
+          status?: 'active' | 'inactive' | 'cancelled' | 'suspended'
+          verified_at?: string | null
           created_at?: string
           updated_at?: string
         }
       }
-      gst_deadlines: {
+      deadlines: {
         Row: {
           id: string
           entity_id: string
@@ -56,9 +123,9 @@ export interface Database {
           period_month: number
           period_year: number
           due_date: string
-          status: 'upcoming' | 'filed' | 'overdue'
           filed_at: string | null
           proof_url: string | null
+          notes: string | null
           created_at: string
           updated_at: string
         }
@@ -69,9 +136,9 @@ export interface Database {
           period_month: number
           period_year: number
           due_date: string
-          status?: 'upcoming' | 'filed' | 'overdue'
           filed_at?: string | null
           proof_url?: string | null
+          notes?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -82,11 +149,93 @@ export interface Database {
           period_month?: number
           period_year?: number
           due_date?: string
-          status?: 'upcoming' | 'filed' | 'overdue'
           filed_at?: string | null
           proof_url?: string | null
+          notes?: string | null
           created_at?: string
           updated_at?: string
+        }
+      }
+      reminder_schedule: {
+        Row: {
+          id: string
+          deadline_id: string
+          send_at: string
+          template_id: string
+          sent_at: string | null
+          status: 'pending' | 'sent' | 'failed' | 'cancelled'
+          created_at: string
+          error_message: string | null
+          claimed_at: string | null
+          claimed_by: string | null
+        }
+        Insert: {
+          id?: string
+          deadline_id: string
+          send_at: string
+          template_id: string
+          sent_at?: string | null
+          status?: 'pending' | 'sent' | 'failed' | 'cancelled'
+          created_at?: string
+          error_message?: string | null
+          claimed_at?: string | null
+          claimed_by?: string | null
+        }
+        Update: {
+          id?: string
+          deadline_id?: string
+          send_at?: string
+          template_id?: string
+          sent_at?: string | null
+          status?: 'pending' | 'sent' | 'failed' | 'cancelled'
+          created_at?: string
+          error_message?: string | null
+          claimed_at?: string | null
+          claimed_by?: string | null
+        }
+      }
+      message_outbox: {
+        Row: {
+          id: string
+          contact_id: string
+          template_id: string
+          parameters: Json | null
+          scheduled_for: string
+          sent_at: string | null
+          delivery_status: 'queued' | 'sent' | 'delivered' | 'read' | 'failed' | 'cancelled'
+          external_message_id: string | null
+          created_at: string
+          error_message: string | null
+          claimed_at: string | null
+          claimed_by: string | null
+        }
+        Insert: {
+          id?: string
+          contact_id: string
+          template_id: string
+          parameters?: Json | null
+          scheduled_for: string
+          sent_at?: string | null
+          delivery_status?: 'queued' | 'sent' | 'delivered' | 'read' | 'failed' | 'cancelled'
+          external_message_id?: string | null
+          created_at?: string
+          error_message?: string | null
+          claimed_at?: string | null
+          claimed_by?: string | null
+        }
+        Update: {
+          id?: string
+          contact_id?: string
+          template_id?: string
+          parameters?: Json | null
+          scheduled_for?: string
+          sent_at?: string | null
+          delivery_status?: 'queued' | 'sent' | 'delivered' | 'read' | 'failed' | 'cancelled'
+          external_message_id?: string | null
+          created_at?: string
+          error_message?: string | null
+          claimed_at?: string | null
+          claimed_by?: string | null
         }
       }
     }

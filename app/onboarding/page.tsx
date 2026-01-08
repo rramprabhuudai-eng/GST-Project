@@ -9,6 +9,7 @@ interface OnboardingFormData {
   businessName: string
   contactName: string
   gstin: string
+  filingFrequency: 'monthly' | 'quarterly'
   whatsappConsent: boolean
 }
 
@@ -22,6 +23,7 @@ export default function OnboardingPage() {
     businessName: '',
     contactName: '',
     gstin: '',
+    filingFrequency: 'monthly',
     whatsappConsent: false,
   })
   const supabase = createClient()
@@ -118,8 +120,6 @@ export default function OnboardingPage() {
         .from('accounts')
         .insert({
           business_name: formData.businessName,
-          phone: userPhone,
-          whatsapp_consent: formData.whatsappConsent,
         })
         .select()
         .single()
@@ -129,31 +129,51 @@ export default function OnboardingPage() {
       }
 
       // Create contact record
-      const { error: contactError } = await supabase
+      const { data: contact, error: contactError } = await supabase
         .from('contacts')
         .insert({
           account_id: account.id,
           name: formData.contactName,
           phone: userPhone,
-          is_primary: true,
+          whatsapp_consent: formData.whatsappConsent,
         })
+        .select()
+        .single()
 
       if (contactError) {
         throw contactError
       }
 
       // Create GST entity record
-      const { error: gstError } = await supabase
+      const { data: gstEntity, error: gstError } = await supabase
         .from('gst_entities')
         .insert({
           account_id: account.id,
           gstin: formData.gstin.toUpperCase(),
+          legal_name: formData.businessName,
           state_code: gstinData.stateCode,
-          is_active: true,
+          filing_frequency: formData.filingFrequency,
+          status: 'active',
         })
+        .select()
+        .single()
 
       if (gstError) {
         throw gstError
+      }
+
+      // Auto-generate deadlines for the new GST entity
+      const deadlineResponse = await fetch('/api/deadlines/generate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ entity_id: gstEntity.id }),
+      })
+
+      if (!deadlineResponse.ok) {
+        console.error('Failed to generate deadlines:', await deadlineResponse.text())
+        // Don't throw error - onboarding should still succeed
       }
 
       // Success - redirect to timeline
@@ -274,6 +294,46 @@ export default function OnboardingPage() {
                 <p className="text-sm text-gray-500 mt-1">
                   Format: 2 digits + 10 alphanumeric + 1 letter + 1 digit + 1 letter
                 </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-2">
+                  Filing Frequency *
+                </label>
+                <div className="space-y-2">
+                  <label className="flex items-center p-3 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50">
+                    <input
+                      type="radio"
+                      name="filingFrequency"
+                      value="monthly"
+                      checked={formData.filingFrequency === 'monthly'}
+                      onChange={(e) =>
+                        setFormData({ ...formData, filingFrequency: e.target.value as 'monthly' | 'quarterly' })
+                      }
+                      className="mr-3"
+                    />
+                    <div>
+                      <div className="font-medium">Monthly</div>
+                      <div className="text-sm text-gray-600">File GSTR-1 and GSTR-3B every month</div>
+                    </div>
+                  </label>
+                  <label className="flex items-center p-3 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50">
+                    <input
+                      type="radio"
+                      name="filingFrequency"
+                      value="quarterly"
+                      checked={formData.filingFrequency === 'quarterly'}
+                      onChange={(e) =>
+                        setFormData({ ...formData, filingFrequency: e.target.value as 'monthly' | 'quarterly' })
+                      }
+                      className="mr-3"
+                    />
+                    <div>
+                      <div className="font-medium">Quarterly</div>
+                      <div className="text-sm text-gray-600">File GSTR-1 and GSTR-3B every quarter</div>
+                    </div>
+                  </label>
+                </div>
               </div>
 
               <div className="flex gap-3">

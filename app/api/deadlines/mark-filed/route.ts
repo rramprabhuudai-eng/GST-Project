@@ -14,10 +14,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Update the deadline record
+    // Note: The database trigger will automatically cancel pending reminders when filed_at is set
     const { data: updatedDeadline, error: updateError } = await supabase
-      .from('gst_deadlines')
+      .from('deadlines')
       .update({
-        status: 'filed',
         filed_at: new Date().toISOString(),
         proof_url: proof_url || null
       })

@@ -35,15 +35,14 @@ export async function POST(request: NextRequest) {
     // Insert deadlines into database (skip if already exists due to UNIQUE constraint)
     const deadlinesWithEntityId = deadlines.map(deadline => ({
       entity_id,
-      ...deadline,
-      status: 'upcoming' as const
+      ...deadline
     }))
 
     // Use upsert to handle duplicates gracefully
     const { data: insertedDeadlines, error: insertError } = await supabase
-      .from('gst_deadlines')
+      .from('deadlines')
       .upsert(deadlinesWithEntityId, {
-        onConflict: 'entity_id,return_type,period_month,period_year',
+        onConflict: 'entity_id,return_type,period_year,period_month',
         ignoreDuplicates: true
       })
       .select()
@@ -58,7 +57,7 @@ export async function POST(request: NextRequest) {
 
     // Fetch all deadlines for this entity to return
     const { data: allDeadlines, error: fetchError } = await supabase
-      .from('gst_deadlines')
+      .from('deadlines')
       .select('*')
       .eq('entity_id', entity_id)
       .order('due_date', { ascending: true })
