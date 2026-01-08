@@ -14,7 +14,7 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+# lib/ - Commented out for Next.js/TypeScript projects where lib/ contains source code
 lib64/
 parts/
 sdist/
