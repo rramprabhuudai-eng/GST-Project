@@ -43,6 +43,10 @@ lerna-debug.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# Prisma
+prisma/migrations/dev.db
+prisma/migrations/dev.db-journal
+
 # IDEs
 .vscode/
 .idea/
