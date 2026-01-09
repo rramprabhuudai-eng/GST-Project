@@ -1,166 +1,182 @@
-import { supabase } from '@/lib/supabase'
-
 /**
- * Result of cancelling reminders and messages for a contact
+ * Opt-out functionality for WhatsApp messaging
+ * Handles contact opt-out and cancellation of pending communications
  */
-export interface OptOutResult {
-  cancelledReminders: number
-  cancelledMessages: number
+
+import { createClient } from '@supabase/supabase-js';
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
+
+interface OptOutResult {
+  success: boolean;
+  contactUpdated: boolean;
+  remindersCancelled: number;
+  messagesCancelled: number;
+  error?: string;
 }
 
 /**
- * Cancels all pending reminders for a contact who has opted out
+ * Opt out a contact from WhatsApp communications
  *
- * This function:
- * 1. Finds all pending reminders for deadlines belonging to the contact's account
- * 2. Updates their status to 'cancelled'
- * 3. Returns the count of cancelled reminders
- *
- * @param contactId - The ID of the contact opting out
- * @returns Promise with count of cancelled reminders
- */
-export async function cancelPendingRemindersForContact(
-  contactId: string
-): Promise<number> {
-  // First, get the account_id for this contact
-  const { data: contact, error: contactError } = await supabase
-    .from('contacts')
-    .select('account_id')
-    .eq('id', contactId)
-    .single()
-
-  if (contactError || !contact) {
-    throw new Error(`Failed to get contact: ${contactError?.message || 'Contact not found'}`)
-  }
-
-  // Get all entity IDs for this account
-  const { data: entities, error: entitiesError } = await supabase
-    .from('gst_entities')
-    .select('id')
-    .eq('account_id', contact.account_id)
-
-  if (entitiesError) {
-    throw new Error(`Failed to get entities: ${entitiesError.message}`)
-  }
-
-  if (!entities || entities.length === 0) {
-    return 0 // No entities, no reminders to cancel
-  }
-
-  const entityIds = entities.map(e => e.id)
-
-  // Get all deadline IDs for these entities
-  const { data: deadlines, error: deadlinesError } = await supabase
-    .from('deadlines')
-    .select('id')
-    .in('entity_id', entityIds)
-
-  if (deadlinesError) {
-    throw new Error(`Failed to get deadlines: ${deadlinesError.message}`)
-  }
-
-  if (!deadlines || deadlines.length === 0) {
-    return 0 // No deadlines, no reminders to cancel
-  }
-
-  const deadlineIds = deadlines.map(d => d.id)
-
-  // Cancel all pending reminders for these deadlines
-  const { data: cancelledReminders, error: reminderError } = await supabase
-    .from('reminder_schedule')
-    .update({ status: 'cancelled' })
-    .in('deadline_id', deadlineIds)
-    .eq('status', 'pending')
-    .select('id')
-
-  if (reminderError) {
-    throw new Error(`Failed to cancel reminders: ${reminderError.message}`)
-  }
-
-  return cancelledReminders?.length || 0
-}
-
-/**
- * Cancels all pending messages for a contact who has opted out
- *
- * This function:
- * 1. Finds all queued messages for the contact
- * 2. Updates their delivery_status to 'cancelled'
- * 3. Returns the count of cancelled messages
+ * CRITICAL: This function only cancels pending/scheduled items.
+ * It NEVER modifies sent, delivered, failed, or already-cancelled items.
+ * This preserves historical data integrity.
  *
  * @param contactId - The ID of the contact opting out
- * @returns Promise with count of cancelled messages
+ * @param reason - Optional reason for opting out
+ * @returns Result with counts of cancelled items
  */
-export async function cancelPendingMessagesForContact(
-  contactId: string
-): Promise<number> {
-  const { data: cancelledMessages, error } = await supabase
-    .from('message_outbox')
-    .update({ delivery_status: 'cancelled' })
-    .eq('contact_id', contactId)
-    .eq('delivery_status', 'queued')
-    .select('id')
-
-  if (error) {
-    throw new Error(`Failed to cancel messages: ${error.message}`)
-  }
-
-  return cancelledMessages?.length || 0
-}
-
-/**
- * Cancels all pending reminders and messages for a contact
- *
- * This is the main opt-out handler that should be called when a user
- * opts out of WhatsApp communications. It ensures that:
- * 1. No more reminders will be generated (status changed to 'cancelled')
- * 2. No queued messages will be sent (status changed to 'cancelled')
- *
- * @param contactId - The ID of the contact opting out
- * @returns Promise with OptOutResult containing counts of cancelled items
- */
-export async function cancelAllPendingReminders(
-  contactId: string
+export async function optOutContact(
+  contactId: string,
+  reason?: string
 ): Promise<OptOutResult> {
   try {
-    // Cancel reminders and messages in parallel for better performance
-    const [cancelledReminders, cancelledMessages] = await Promise.all([
-      cancelPendingRemindersForContact(contactId),
-      cancelPendingMessagesForContact(contactId)
-    ])
+    // 1. Update contact consent status
+    const { error: contactError } = await supabase
+      .from('contacts')
+      .update({
+        whatsapp_consent: false,
+        opt_out_at: new Date().toISOString(),
+        consent_change_reason: reason || 'User requested opt-out',
+      })
+      .eq('id', contactId);
+
+    if (contactError) {
+      return {
+        success: false,
+        contactUpdated: false,
+        remindersCancelled: 0,
+        messagesCancelled: 0,
+        error: `Failed to update contact: ${contactError.message}`,
+      };
+    }
+
+    // 2. Cancel pending/scheduled reminders ONLY
+    // DO NOT modify reminders that are: sent, delivered, failed, cancelled
+    // This preserves historical data
+    const { data: cancelledReminders, error: remindersError } = await supabase
+      .from('reminders')
+      .update({
+        status: 'cancelled',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('contact_id', contactId)
+      .in('status', ['scheduled', 'queued', 'pending']) // ONLY cancel these statuses
+      .select('id');
+
+    if (remindersError) {
+      console.error('Error cancelling reminders:', remindersError);
+    }
+
+    // 3. Cancel pending/queued messages ONLY
+    // DO NOT modify messages that are: sent, delivered, failed, cancelled
+    // This preserves historical data
+    const { data: cancelledMessages, error: messagesError } = await supabase
+      .from('messages')
+      .update({
+        status: 'cancelled',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('contact_id', contactId)
+      .in('status', ['queued', 'pending']) // ONLY cancel these statuses
+      .select('id');
+
+    if (messagesError) {
+      console.error('Error cancelling messages:', messagesError);
+    }
+
+    const remindersCancelled = cancelledReminders?.length || 0;
+    const messagesCancelled = cancelledMessages?.length || 0;
+
+    console.log(
+      `Contact ${contactId} opted out. ` +
+      `Cancelled: ${remindersCancelled} reminders, ${messagesCancelled} messages. ` +
+      `Reason: ${reason || 'Not specified'}`
+    );
 
     return {
-      cancelledReminders,
-      cancelledMessages
-    }
+      success: true,
+      contactUpdated: true,
+      remindersCancelled,
+      messagesCancelled,
+    };
   } catch (error) {
-    throw new Error(
-      `Failed to cancel pending communications: ${error instanceof Error ? error.message : 'Unknown error'}`
-    )
+    console.error('Unexpected error in optOutContact:', error);
+    return {
+      success: false,
+      contactUpdated: false,
+      remindersCancelled: 0,
+      messagesCancelled: 0,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
   }
 }
 
 /**
- * Re-enables reminders for a contact who is opting back in
- *
- * Note: This only clears the opt-out status. It does NOT re-create
- * reminders that were previously cancelled. New reminders will be
- * created for upcoming deadlines during the next reminder generation cycle.
+ * Opt a contact back in to WhatsApp communications
  *
  * @param contactId - The ID of the contact opting back in
- * @returns Promise that resolves when opt-in is complete
+ * @param reason - Optional reason for opting back in
  */
-export async function optInContact(contactId: string): Promise<void> {
-  const { error } = await supabase
-    .from('contacts')
-    .update({
-      whatsapp_consent: true,
-      opt_out_at: null,
-      consent_change_reason: 'User opted back in via settings'
-    })
-    .eq('id', contactId)
+export async function optInContact(
+  contactId: string,
+  reason?: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { error } = await supabase
+      .from('contacts')
+      .update({
+        whatsapp_consent: true,
+        opt_out_at: null, // Clear opt-out timestamp
+        consent_change_reason: reason || 'User requested opt-in',
+      })
+      .eq('id', contactId);
 
-  if (error) {
-    throw new Error(`Failed to opt in contact: ${error.message}`)
+    if (error) {
+      return {
+        success: false,
+        error: `Failed to opt in contact: ${error.message}`,
+      };
+    }
+
+    console.log(`Contact ${contactId} opted back in. Reason: ${reason || 'Not specified'}`);
+
+    return { success: true };
+  } catch (error) {
+    console.error('Unexpected error in optInContact:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+}
+
+/**
+ * Check if a contact has given WhatsApp consent
+ *
+ * @param contactId - The ID of the contact to check
+ * @returns true if contact has consent, false otherwise
+ */
+export async function hasWhatsAppConsent(contactId: string): Promise<boolean> {
+  try {
+    const { data, error } = await supabase
+      .from('contacts')
+      .select('whatsapp_consent, opt_out_at')
+      .eq('id', contactId)
+      .single();
+
+    if (error || !data) {
+      console.error('Error checking consent:', error);
+      return false;
+    }
+
+    // Contact must have whatsapp_consent = true AND opt_out_at must be NULL
+    return data.whatsapp_consent === true && data.opt_out_at === null;
+  } catch (error) {
+    console.error('Unexpected error in hasWhatsAppConsent:', error);
+    return false;
   }
 }
