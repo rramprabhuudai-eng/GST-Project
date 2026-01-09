@@ -1,132 +1,21 @@
-# GST Filing Timeline
+# GST-Project
 
-A Next.js application for tracking and managing GST (Goods and Services Tax) return deadlines in India.
+A comprehensive GST (Goods and Services Tax) compliance management system with an integrated Compliance Reliability Index (CRI) scoring system.
 
 ## Features
 
-- **Automatic Deadline Generation**: Generates GST return deadlines for GSTR-1 and GSTR-3B (monthly/quarterly)
-- **Timeline View**: Display upcoming deadlines in chronological order for the next 90 days
-- **Smart Scheduling**: Automatically moves deadlines to next working day if they fall on weekends
-- **Deadline Tracking**: Mark returns as filed with timestamps
-- **Multi-Entity Support**: Manage deadlines for multiple GSTIN entities
-- **Mobile Optimized**: Responsive design for mobile and desktop
+### Compliance Reliability Index (CRI)
 
-## Tech Stack
+The CRI is a behavioral compliance indicator that evaluates user filing patterns based on:
 
-- **Framework**: Next.js 14 with TypeScript
-- **Database**: Supabase (PostgreSQL)
-- **Styling**: Tailwind CSS
-- **Date Handling**: date-fns
+- **Timeliness (40%)**: Percentage of deadlines filed on or before due date
+- **Consistency (25%)**: Filing streak and pattern regularity
+- **Responsiveness (15%)**: Average days between reminder and filing
+- **Verification Integrity (20%)**: Percentage of filings with proof provided
 
-## Setup Instructions
+**Score Range**: 0-100 with letter grades (A+, A, B, C, D)
 
-### 1. Clone the Repository
-
-```bash
-git clone <repository-url>
-cd GST-Project
-```
-
-### 2. Install Dependencies
-
-```bash
-npm install
-```
-
-### 3. Set Up Supabase
-
-1. Create a new project at [Supabase](https://supabase.com)
-2. Run the SQL schema from `database/schema.sql` in the Supabase SQL Editor
-3. Get your project URL and anon key from Project Settings > API
-
-### 4. Configure Environment Variables
-
-Create a `.env.local` file in the root directory:
-
-```bash
-NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
-```
-
-### 5. Run the Development Server
-
-```bash
-npm run dev
-```
-
-Open [http://localhost:3000](http://localhost:3000) in your browser.
-
-## Database Schema
-
-### Tables
-
-#### `gst_entities`
-- Stores GST entity information (GSTIN, legal name, filing frequency)
-- Links to user accounts
-
-#### `gst_deadlines`
-- Stores generated deadlines for each entity
-- Tracks filing status and due dates
-- Unique constraint on entity_id, return_type, period_month, period_year
-
-## API Routes
-
-### POST `/api/deadlines/generate`
-Generates deadlines for a GST entity
-
-**Request Body:**
-```json
-{
-  "entity_id": "uuid"
-}
-```
-
-**Response:**
-```json
-{
-  "success": true,
-  "message": "Generated N deadlines",
-  "deadlines": [...],
-  "entity": {...}
-}
-```
-
-### POST `/api/deadlines/mark-filed`
-Marks a deadline as filed
-
-**Request Body:**
-```json
-{
-  "deadline_id": "uuid",
-  "proof_url": "optional_url"
-}
-```
-
-**Response:**
-```json
-{
-  "success": true,
-  "message": "Deadline marked as filed",
-  "deadline": {...}
-}
-```
-
-## GST Return Types
-
-### Monthly Filing
-- **GSTR-1**: Due on 11th of next month
-- **GSTR-3B**: Due on 20th of next month
-
-### Quarterly Filing
-- **GSTR-1**: Due on 13th of month following quarter
-- **GSTR-3B**: Due on 22nd of month following quarter
-
-## Usage
-
-1. **Add GST Entity**: Insert entity data into `gst_entities` table via Supabase
-2. **Generate Deadlines**: Click "Generate Deadlines" button for each entity
-3. **Track Deadlines**: View upcoming deadlines grouped by month
-4. **Mark as Filed**: Click "Mark as Filed" when return is submitted
+**Data Window**: Rolling 12-month period
 
 ## Project Structure
 
@@ -134,40 +23,81 @@ Marks a deadline as filed
 GST-Project/
 ├── app/
 │   ├── api/
-│   │   └── deadlines/
-│   │       ├── generate/route.ts
-│   │       └── mark-filed/route.ts
-│   ├── timeline/
-│   │   └── page.tsx
-│   ├── layout.tsx
-│   ├── page.tsx
-│   └── globals.css
+│   │   └── cri/
+│   │       └── calculate/
+│   │           └── route.ts          # CRI calculation API endpoints
+│   └── cri/
+│       └── page.tsx                  # CRI display page
 ├── lib/
-│   ├── gst/
-│   │   └── deadline-generator.ts
-│   ├── utils/
-│   │   └── date-utils.ts
-│   └── supabase.ts
-├── database/
-│   └── schema.sql
-└── package.json
+│   └── cri/
+│       ├── types.ts                  # TypeScript type definitions
+│       ├── aggregator.ts             # Data aggregation logic
+│       └── calculator.ts             # Score calculation logic
+└── supabase/
+    └── migrations/
+        └── 005_cri_scores.sql        # Database schema for CRI scores
 ```
 
-## Development
+## Tech Stack
 
-### Build for Production
+- **Framework**: Next.js 14 (App Router)
+- **Language**: TypeScript
+- **Database**: Supabase (PostgreSQL)
+- **Auth**: Supabase Auth
+- **Styling**: Tailwind CSS
+- **UI**: React 18
+
+## Getting Started
+
+### Prerequisites
+
+- Node.js 18+ and npm/yarn
+- Supabase project with appropriate tables (gst_entities, deadlines)
+
+### Installation
 
 ```bash
-npm run build
-npm start
+# Install dependencies
+npm install
+
+# Run database migrations
+# Apply the migration file: supabase/migrations/005_cri_scores.sql
+
+# Run development server
+npm run dev
 ```
 
-### Linting
+Visit `http://localhost:3000/cri` to view the CRI dashboard.
+
+## API Endpoints
+
+### Calculate CRI Score
 
 ```bash
-npm run lint
+POST /api/cri/calculate
+Content-Type: application/json
+
+{
+  "entity_id": "uuid"
+}
 ```
+
+### Get CRI Score
+
+```bash
+GET /api/cri/calculate?entity_id=uuid
+```
+
+## Documentation
+
+For detailed implementation documentation, see [CRI_IMPLEMENTATION.md](./CRI_IMPLEMENTATION.md)
+
+## Security
+
+- Row Level Security (RLS) enabled on all tables
+- Entity ownership validation
+- Authentication required for all endpoints
 
 ## License
 
-MIT
+Private - All rights reserved
